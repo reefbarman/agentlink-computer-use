@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+configuration="${1:-release}"
+case "$configuration" in
+  debug|release) ;;
+  *)
+    echo "usage: scripts/build-native [debug|release]" >&2
+    exit 2
+    ;;
+esac
+
+root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+build_dir="$root_dir/native/.build"
+
+export CLANG_MODULE_CACHE_PATH="$build_dir/module-cache"
+export SWIFTPM_MODULECACHE_OVERRIDE="$build_dir/module-cache"
+
+exec swift build \
+  -c "$configuration" \
+  --package-path "$root_dir/native" \
+  --scratch-path "$build_dir" \
+  --cache-path "$build_dir/cache" \
+  --config-path "$build_dir/config" \
+  --security-path "$build_dir/security"

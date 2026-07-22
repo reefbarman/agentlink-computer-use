@@ -1,0 +1,35 @@
+{
+  "name": "computer-use-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "computer-use-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:native": "npm run build:native:release",
+    "build:native:debug": "scripts/build-native debug",
+    "build:native:release": "scripts/build-native release",
+    "capture:vscode-smoke": "npm run build:native && npm run build && node scripts/capture-vscode-smoke.mjs",
+    "test": "vitest run tests/native-client.test.ts tests/artifacts.test.ts tests/server.test.ts",
+    "test:integration": "npm run build:native && npm run build && vitest run --no-file-parallelism --testTimeout=45000 tests/native-integration.test.ts tests/stdio-integration.test.ts",
+    "test:smoke": "npm run build:native && vitest run tests/discovery-smoke.test.ts",
+    "test:mouse-smoke": "npm run build:native && vitest run tests/mouse-smoke.test.ts",
+    "test:keyboard-smoke": "npm run build:native && vitest run --testTimeout=30000 tests/keyboard-smoke.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "validate": "npm run typecheck && npm test && npm run test:integration"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

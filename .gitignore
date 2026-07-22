@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+native/.build/
+.DS_Store
+
+# Local developer configuration
+.agentlink/
+.vscode/
+plans/
