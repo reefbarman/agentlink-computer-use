@@ -1,0 +1,68 @@
+tests/operation-coordinator.test.ts
+  h_9630b74bdac540 1-115
+native/Sources/SemanticWorkflowTestTarget/main.swift
+  h_9630b74bdac540 1-466
+src/tools/ui-act.ts
+  h_9630b74bdac540 1-454,457-462,465-519
+tests/stdio-integration.test.ts
+  h_9630b74bdac540 52-56,114-207
+src/tools/ui-query.ts
+  h_9630b74bdac540 1-163
+tests/ui-workflow-integration.test.ts
+  h_9630b74bdac540 1-164
+tests/fixtures/native-helper.mjs
+  h_9630b74bdac540 18-23
+src/native/client.ts
+  h_9630b74bdac540 44,57-68,84-107,127-129
+tests/ax-discovery.test.ts
+  h_9630b74bdac540 1-300
+native/Sources/ComputerUseNative/ProtocolServer.swift
+  h_9630b74bdac540 65-74
+src/benchmarks/semantic-baseline-types.ts
+  h_9630b74bdac540 1-189
+native/Sources/ComputerUseNative/SemanticConditions.swift
+  h_9630b74bdac540 1-366,368-402
+native/Sources/ComputerUseNative/SemanticFill.swift
+  h_9630b74bdac540 1-269
+src/benchmarks/ax-discovery-types.ts
+  h_9630b74bdac540 1-87
+tests/server.test.ts
+  h_9630b74bdac540 7,11,61-250,291-294,393,396,432-436,574-636,638-674,676-684,686-1514
+native/Sources/ComputerUseNative/SemanticTransaction.swift
+  h_9630b74bdac540 1-351
+src/tools/ui-fill.ts
+  h_9630b74bdac540 1-148,150-172,174-176,178-188,190-202,204-206,208-257
+tests/native-client.test.ts
+  h_9630b74bdac540 78-93
+src/tools/ui-workflow.ts
+  h_9630b74bdac540 1-552
+src/semantic/operation-coordinator.ts
+  h_9630b74bdac540 1-50
+native/Sources/ComputerUseNative/AccessibilityDiscovery.swift
+  h_9630b74bdac540 1-794,796-824
+tests/native-integration.test.ts
+  h_9630b74bdac540 3-8,14-15,19-21,24-83,156-204,206-635
+src/semantic/contracts.ts
+  h_9630b74bdac540 1-1074
+src/tools/ui-wait.ts
+  h_9630b74bdac540 1-155
+src/server.ts
+  h_9630b74bdac540 3-7,13-17,45-48,50,72,81-90
+src/semantic/lm-studio-candidate-selector.ts
+  h_9630b74bdac540 1-193
+tests/lm-studio-candidate-selector.test.ts
+  h_9630b74bdac540 1-175
+package.json
+  h_9630b74bdac540 18-23,25-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6484d51a49a1c07ff0ce6693d23c6b6c70ffe6e5",
+  "prompts": {},
+  "humans": {
+    "h_9630b74bdac540": {
+      "author": "Tristan Cartledge <tristan@speakeasyapi.dev>"
+    }
+  }
+}
