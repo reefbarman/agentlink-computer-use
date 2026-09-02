@@ -41,6 +41,7 @@ export class NativeClient implements NativeBridge {
   readonly #pending = new Map<string, PendingRequest>();
   #process: ChildProcessWithoutNullStreams | undefined;
   #starting: Promise<ChildProcessWithoutNullStreams> | undefined;
+  #requestQueue: Promise<void> = Promise.resolve();
   #closed = false;
 
   constructor(options: NativeClientOptions) {
@@ -53,9 +54,20 @@ export class NativeClient implements NativeBridge {
     };
   }
 
-  async request<T>(
+  request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    const result = this.#requestQueue.then(() =>
+      this.#dispatchRequest<T>(method, params),
+    );
+    this.#requestQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  async #dispatchRequest<T>(
     method: string,
-    params: Record<string, unknown> = {},
+    params: Record<string, unknown>,
   ): Promise<T> {
     if (this.#closed) {
       throw new NativeError("native_unavailable", "Native client is closed");
@@ -69,6 +81,30 @@ export class NativeClient implements NativeBridge {
     const id = randomUUID();
     const request: NativeRequest = { id, version: 1, method, params };
 
+    const isAccessibilityRequest = method.startsWith("accessibility.");
+    const accessibilityRequestTimeoutMs = 8_000;
+    // accessibility.wait permits up to 30 seconds plus one worst-case
+    // 3-second AX traversal and scheduling/serialization margin.
+    const accessibilityWaitTimeoutMs =
+      method === "accessibility.wait"
+        ? Math.min(
+            30_000,
+            typeof params.timeoutMs === "number" &&
+              Number.isInteger(params.timeoutMs)
+              ? Math.max(0, params.timeoutMs)
+              : 10_000,
+          ) + 8_000
+        : method === "accessibility.act" || method === "accessibility.fill"
+          ? // Verification polling plus one worst-case resolve, the dispatch
+            // boundary, and one worst-case verification traversal.
+            Math.min(
+              15_000,
+              typeof params.verificationTimeoutMs === "number" &&
+                Number.isInteger(params.verificationTimeoutMs)
+                ? Math.max(0, params.verificationTimeoutMs)
+                : 3_000,
+            ) + 12_000
+          : accessibilityRequestTimeoutMs;
     const isInputRequest =
       method === "mouse.move" ||
       method === "mouse.drag" ||
@@ -88,11 +124,13 @@ export class NativeClient implements NativeBridge {
           5_000
         : method === "screen.capture"
           ? this.#options.captureRequestTimeoutMs
-          : method === "input.batch"
-            ? inputBatchRequestTimeoutMs
-            : isInputRequest
-              ? this.#options.inputRequestTimeoutMs
-              : this.#options.requestTimeoutMs;
+          : isAccessibilityRequest
+            ? accessibilityWaitTimeoutMs
+            : method === "input.batch"
+              ? inputBatchRequestTimeoutMs
+              : isInputRequest
+                ? this.#options.inputRequestTimeoutMs
+                : this.#options.requestTimeoutMs;
 
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {

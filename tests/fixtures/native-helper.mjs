@@ -15,6 +15,12 @@ for await (const line of lines) {
     );
   } else if (request.method === "hang") {
     continue;
+  } else if (request.method === "accessibility.wait") {
+    setTimeout(() => {
+      process.stdout.write(
+        `${JSON.stringify({ id: request.id, ok: true, result: { waited: true } })}\n`,
+      );
+    }, 125);
   } else if (
     request.method === "mouse.move" ||
     request.method === "keyboard.shortcut" ||

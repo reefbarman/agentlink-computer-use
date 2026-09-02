@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "example-vscode-control",
+      "bundleIdentifier": "com.microsoft.VSCode",
+      "windowTitlePattern": "^project — Code$",
+      "referenceWindowSize": {
+        "width": 1440,
+        "height": 900
+      },
+      "query": "an unambiguous visible control",
+      "expectedStatus": "found",
+      "targetBoundsNormalized": {
+        "x": 0.1,
+        "y": 0.1,
+        "width": 0.1,
+        "height": 0.05
+      }
+    }
+  ]
+}

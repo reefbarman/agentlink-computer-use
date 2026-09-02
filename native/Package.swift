@@ -9,10 +9,26 @@ let package = Package(
     ],
     products: [
         .executable(name: "ComputerUseNative", targets: ["ComputerUseNative"]),
+        .executable(name: "GroundingTestTarget", targets: ["GroundingTestTarget"]),
+        .executable(name: "SemanticWorkflowTestTarget", targets: ["SemanticWorkflowTestTarget"]),
         .executable(name: "KeyboardTestTarget", targets: ["KeyboardTestTarget"]),
         .executable(name: "MouseTestTarget", targets: ["MouseTestTarget"]),
     ],
     targets: [
+        .executableTarget(
+            name: "GroundingTestTarget",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("CoreGraphics"),
+            ]
+        ),
+        .executableTarget(
+            name: "SemanticWorkflowTestTarget",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("CoreGraphics"),
+            ]
+        ),
         .executableTarget(
             name: "KeyboardTestTarget",
             linkerSettings: [

@@ -62,6 +62,16 @@ func serve() async throws {
                         try await focusWindow(windowId: windowId)
                     }
                 }
+            case "accessibility.snapshot":
+                result = try accessibilitySnapshot(parameters)
+            case "accessibility.query":
+                result = try accessibilityQuery(parameters)
+            case "accessibility.wait":
+                result = try await accessibilityWait(parameters)
+            case "accessibility.act":
+                result = try await accessibilityAct(parameters)
+            case "accessibility.fill":
+                result = try await accessibilityFill(parameters)
             case "screen.capture":
                 try await prepareCaptureContent()
                 result = try await requireControlSafetyController().withCaptureActivity {

@@ -49,6 +49,11 @@ describe("stdio MCP integration", () => {
       "mouse_position",
       "mouse_scroll",
       "screen_capture",
+      "ui_act",
+      "ui_fill",
+      "ui_query",
+      "ui_wait",
+      "ui_workflow",
       "window_focus",
       "window_list",
     ]);
@@ -104,6 +109,100 @@ describe("stdio MCP integration", () => {
         }),
       ]),
     });
+  });
+
+  it("queries semantic UI through MCP stdio without input or capture", async () => {
+    const applications = await client.callTool({
+      name: "application_list",
+      arguments: {},
+    });
+    const applicationList = applications.structuredContent as {
+      applications: Array<{
+        processId: number;
+        bundleIdentifier: string | null;
+      }>;
+    };
+    const application = applicationList.applications.find(
+      ({ bundleIdentifier }) => bundleIdentifier === "com.microsoft.VSCode",
+    );
+    if (!application) {
+      throw new Error("VS Code was not running for ui_query stdio integration");
+    }
+
+    const result = await client.callTool({
+      name: "ui_query",
+      arguments: {
+        scope: { processId: application.processId },
+        target: { roles: ["AXApplication"] },
+        maxCandidates: 1,
+      },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      schemaVersion: 1,
+      applicationMatchCount: 1,
+      scope: {
+        application: {
+          processId: application.processId,
+          processInstanceId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        },
+      },
+      observation: {
+        source: "accessibility",
+      },
+      candidatesTruncated: false,
+    });
+    expect(result.content).toEqual([expect.objectContaining({ type: "text" })]);
+  });
+
+  it("waits for semantic UI through MCP stdio without input or capture", async () => {
+    const applications = await client.callTool({
+      name: "application_list",
+      arguments: {},
+    });
+    const applicationList = applications.structuredContent as {
+      applications: Array<{
+        processId: number;
+        bundleIdentifier: string | null;
+      }>;
+    };
+    const application = applicationList.applications.find(
+      ({ bundleIdentifier }) => bundleIdentifier === "com.microsoft.VSCode",
+    );
+    if (!application) {
+      throw new Error("VS Code was not running for ui_wait stdio integration");
+    }
+
+    const result = await client.callTool({
+      name: "ui_wait",
+      arguments: {
+        scope: { processId: application.processId },
+        condition: {
+          kind: "window",
+          state: "appears",
+        },
+        timeoutMs: 500,
+        pollIntervalMs: 50,
+      },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      schemaVersion: 1,
+      status: "satisfied",
+      applicationMatchCount: 1,
+      pollCount: 1,
+      evaluations: [
+        {
+          kind: "window",
+          state: "appears",
+          status: "satisfied",
+        },
+      ],
+      reasons: [],
+    });
+    expect(result.content).toEqual([expect.objectContaining({ type: "text" })]);
   });
 
   it("executes a wait-only input batch through MCP stdio", async () => {

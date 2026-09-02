@@ -1,14 +1,85 @@
 /// <reference types="node" />
 
+import {
+  accessibilityActSchema,
+  accessibilityFillSchema,
+  accessibilityQuerySchema,
+  accessibilityWaitSchema,
+} from "../src/semantic/contracts.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { NativeClient } from "../src/native/client.js";
 import { access } from "node:fs/promises";
 import { consumeCaptureArtifact } from "../src/native/artifacts.js";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createInterface, type Interface } from "node:readline";
 import { resolve } from "node:path";
 
 const helperPath = resolve("native/.build/release/ComputerUseNative");
+const semanticTargetPath = resolve(
+  "native/.build/release/SemanticWorkflowTestTarget",
+);
 let client: NativeClient;
+
+interface PassiveSemanticTarget {
+  child: ChildProcessWithoutNullStreams;
+  lines: Interface;
+  processId: number;
+}
+
+async function startPassiveSemanticTarget(): Promise<PassiveSemanticTarget> {
+  const child = spawn(semanticTargetPath, [], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, SEMANTIC_WORKFLOW_PASSIVE: "1" },
+  });
+  const lines = createInterface({ input: child.stdout });
+  const processId = await new Promise<number>((resolveReady, rejectReady) => {
+    const timeout = setTimeout(
+      () => rejectReady(new Error("Passive semantic target timed out")),
+      10_000,
+    );
+    const fail = (error: Error) => {
+      clearTimeout(timeout);
+      rejectReady(error);
+    };
+    lines.on("line", (line) => {
+      try {
+        const event = JSON.parse(line) as { type?: string; processId?: number };
+        if (event.type === "ready" && typeof event.processId === "number") {
+          clearTimeout(timeout);
+          resolveReady(event.processId);
+        }
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    child.once("error", fail);
+    child.once("exit", (code, signal) =>
+      fail(
+        new Error(
+          `Passive semantic target exited (${signal ?? code}) before readiness`,
+        ),
+      ),
+    );
+  });
+  return { child, lines, processId };
+}
+
+async function stopPassiveSemanticTarget(
+  target: PassiveSemanticTarget | undefined,
+): Promise<void> {
+  if (target === undefined) return;
+  target.lines.close();
+  if (target.child.exitCode !== null) return;
+  target.child.kill("SIGTERM");
+  await Promise.race([
+    new Promise<void>((resolveExit) =>
+      target.child.once("exit", () => resolveExit()),
+    ),
+    new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, 2_000)),
+  ]);
+  if (target.child.exitCode === null) target.child.kill("SIGKILL");
+}
 
 beforeAll(async () => {
   await access(helperPath);
@@ -80,6 +151,488 @@ describe("native helper integration", () => {
         expect.objectContaining({ processId: status.process.pid }),
       ]),
     );
+  });
+
+  it("keeps readable matched labels query-only and binds AX observations to a process instance", async () => {
+    await expect(
+      client.request("accessibility.snapshot", {
+        processId: process.pid,
+        contentPolicy: "matched",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+
+    const health = await client.request<{
+      permissions: { accessibility: boolean };
+    }>("health");
+    if (!health.permissions.accessibility) {
+      return;
+    }
+
+    const applications = await client.request<{
+      applications: Array<{
+        processId: number;
+        bundleIdentifier: string | null;
+      }>;
+    }>("application.list", { includeBackground: false });
+    const application = applications.applications.find(
+      ({ bundleIdentifier }) => bundleIdentifier === "com.microsoft.VSCode",
+    );
+    if (!application?.bundleIdentifier) {
+      throw new Error("VS Code was not running for AX identity integration");
+    }
+
+    const parameters = {
+      processId: application.processId,
+      expectedBundleIdentifier: application.bundleIdentifier,
+      contentPolicy: "matched",
+      predicate: { roles: ["AXApplication"] },
+      limits: { maxNodes: 1 },
+    };
+    const first = accessibilityQuerySchema.parse(
+      await client.request("accessibility.query", parameters),
+    );
+    const second = accessibilityQuerySchema.parse(
+      await client.request("accessibility.query", parameters),
+    );
+
+    expect(first.application).toMatchObject({
+      processId: application.processId,
+      processInstanceId: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      bundleIdentifier: application.bundleIdentifier,
+    });
+    expect(second.application.processInstanceId).toBe(
+      first.application.processInstanceId,
+    );
+  });
+
+  it("waits for immediate AX conditions and times out absent conditions without input", async () => {
+    const health = await client.request<{
+      permissions: { accessibility: boolean };
+    }>("health");
+    if (!health.permissions.accessibility) {
+      return;
+    }
+
+    const applications = await client.request<{
+      applications: Array<{
+        processId: number;
+        bundleIdentifier: string | null;
+      }>;
+    }>("application.list", { includeBackground: false });
+    const application = applications.applications.find(
+      ({ bundleIdentifier }) => bundleIdentifier === "com.microsoft.VSCode",
+    );
+    if (!application?.bundleIdentifier) {
+      throw new Error("VS Code was not running for AX wait integration");
+    }
+
+    const base = {
+      processId: application.processId,
+      expectedBundleIdentifier: application.bundleIdentifier,
+      contentPolicy: "redacted",
+      pollIntervalMs: 50,
+    };
+    const satisfied = accessibilityWaitSchema.parse(
+      await client.request("accessibility.wait", {
+        ...base,
+        timeoutMs: 500,
+        condition: {
+          allOf: [
+            {
+              kind: "element",
+              target: { roles: ["AXApplication"] },
+              state: "appears",
+            },
+            {
+              kind: "window",
+              state: "appears",
+            },
+          ],
+        },
+      }),
+    );
+    expect(satisfied).toMatchObject({
+      status: "satisfied",
+      pollCount: 1,
+      evaluations: [
+        { kind: "element", status: "satisfied" },
+        { kind: "window", status: "satisfied" },
+      ],
+      reasons: [],
+    });
+    expect(satisfied.observation).not.toHaveProperty("nodes");
+
+    let target: PassiveSemanticTarget | undefined;
+    try {
+      target = await startPassiveSemanticTarget();
+      await expect(
+        client.request("accessibility.wait", {
+          processId: target.processId,
+          condition: {
+            kind: "window",
+            state: "appears",
+          },
+          unexpected: true,
+        }),
+      ).rejects.toMatchObject({ code: "invalid_argument" });
+      await expect(
+        client.request("accessibility.wait", {
+          processId: target.processId,
+          condition: {
+            kind: "window",
+            state: "appears",
+            unexpected: true,
+          },
+        }),
+      ).rejects.toMatchObject({ code: "invalid_argument" });
+      await expect(
+        client.request("accessibility.wait", {
+          processId: target.processId,
+          condition: {
+            kind: "element",
+            target: { name: "Submit workflow", unexpected: true },
+            state: "appears",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "invalid_argument" });
+
+      const completeTreeConditions = accessibilityWaitSchema.parse(
+        await client.request("accessibility.wait", {
+          processId: target.processId,
+          contentPolicy: "redacted",
+          timeoutMs: 500,
+          pollIntervalMs: 50,
+          condition: {
+            allOf: [
+              {
+                kind: "window",
+                title: "Computer Use Semantic Workflow Target",
+                titleMatch: "exact",
+                state: "appears",
+              },
+              {
+                kind: "element",
+                target: { name: "Enable cloud sync" },
+                state: "enabled",
+                equals: true,
+              },
+            ],
+          },
+        }),
+      );
+      expect(completeTreeConditions).toMatchObject({
+        status: "satisfied",
+        pollCount: 1,
+        evaluations: [
+          {
+            kind: "window",
+            state: "appears",
+            status: "satisfied",
+            matchCount: 1,
+          },
+          {
+            kind: "element",
+            state: "enabled",
+            status: "satisfied",
+            matchCount: 1,
+            observedValue: true,
+          },
+        ],
+        reasons: [],
+      });
+
+      const anyOf = accessibilityWaitSchema.parse(
+        await client.request("accessibility.wait", {
+          processId: target.processId,
+          contentPolicy: "redacted",
+          timeoutMs: 500,
+          pollIntervalMs: 50,
+          condition: {
+            anyOf: [
+              {
+                kind: "element",
+                target: { roles: ["AXButton"] },
+                state: "enabled",
+                equals: true,
+              },
+              {
+                kind: "window",
+                title: "Computer Use Semantic Workflow Target",
+                titleMatch: "exact",
+                state: "appears",
+              },
+            ],
+          },
+        }),
+      );
+      expect(anyOf).toMatchObject({
+        status: "satisfied",
+        pollCount: 1,
+        evaluations: [
+          { status: "uncertain", reason: "element_ambiguous" },
+          { status: "satisfied", kind: "window" },
+        ],
+        reasons: [],
+      });
+
+      const transientUncertainty = accessibilityWaitSchema.parse(
+        await client.request("accessibility.wait", {
+          processId: target.processId,
+          contentPolicy: "redacted",
+          timeoutMs: 250,
+          pollIntervalMs: 50,
+          condition: {
+            kind: "element",
+            target: { roles: ["AXButton"] },
+            state: "enabled",
+            equals: true,
+          },
+        }),
+      );
+      expect(transientUncertainty).toMatchObject({
+        status: "uncertain",
+        evaluations: [
+          {
+            status: "uncertain",
+            reason: "element_ambiguous",
+          },
+        ],
+        reasons: ["element_ambiguous"],
+      });
+      expect(transientUncertainty.pollCount).toBeGreaterThanOrEqual(2);
+
+      const dynamicWait = client.request("accessibility.wait", {
+        processId: target.processId,
+        contentPolicy: "redacted",
+        pollIntervalMs: 50,
+        timeoutMs: 2_000,
+        condition: {
+          kind: "element",
+          target: { name: "Wait transition complete" },
+          state: "appears",
+        },
+      });
+      setTimeout(() => {
+        target?.child.stdin.write(
+          `${JSON.stringify({
+            type: "set_status_label",
+            requestId: "wait-transition",
+            label: "Wait transition complete",
+          })}\n`,
+        );
+      }, 150);
+      const transitioned = accessibilityWaitSchema.parse(await dynamicWait);
+      expect(transitioned).toMatchObject({
+        status: "satisfied",
+        evaluations: [
+          {
+            kind: "element",
+            state: "appears",
+            status: "satisfied",
+            matchCount: 1,
+            observedValue: true,
+          },
+        ],
+        reasons: [],
+      });
+      expect(transitioned.pollCount).toBeGreaterThanOrEqual(2);
+
+      const timedOut = accessibilityWaitSchema.parse(
+        await client.request("accessibility.wait", {
+          processId: target.processId,
+          contentPolicy: "redacted",
+          pollIntervalMs: 50,
+          timeoutMs: 300,
+          condition: {
+            kind: "element",
+            target: { name: "Control that cannot exist in this integration" },
+            state: "appears",
+          },
+        }),
+      );
+      expect(timedOut).toMatchObject({
+        status: "timed_out",
+        pollCount: expect.any(Number),
+        evaluations: [
+          {
+            kind: "element",
+            status: "unsatisfied",
+            matchCount: 0,
+            observedValue: false,
+          },
+        ],
+        reasons: ["timeout"],
+      });
+      expect(timedOut.pollCount).toBeGreaterThanOrEqual(2);
+
+      const disappearingWait = client.request("accessibility.wait", {
+        processId: target.processId,
+        contentPolicy: "redacted",
+        pollIntervalMs: 50,
+        timeoutMs: 2_000,
+        condition: {
+          kind: "element",
+          target: { name: "Never appears before process exit" },
+          state: "appears",
+        },
+      });
+      setTimeout(() => target?.child.kill("SIGTERM"), 150);
+      const disappeared = accessibilityWaitSchema.parse(await disappearingWait);
+      expect(disappeared).toMatchObject({
+        status: "uncertain",
+        observation: null,
+        evaluations: [],
+        reasons: ["process_identity_changed"],
+      });
+      expect(disappeared.pollCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      await stopPassiveSemanticTarget(target);
+    }
+  });
+
+  it("performs verified AX actions and classifies failures around the dispatch boundary", async () => {
+    const health = await client.request<{
+      permissions: { accessibility: boolean };
+    }>("health");
+    if (!health.permissions.accessibility) {
+      return;
+    }
+
+    let target: PassiveSemanticTarget | undefined;
+    try {
+      target = await startPassiveSemanticTarget();
+      const base = {
+        processId: target.processId,
+        contentPolicy: "redacted",
+        verificationTimeoutMs: 2_000,
+        pollIntervalMs: 50,
+      };
+
+      const filled = accessibilityFillSchema.parse(
+        await client.request("accessibility.fill", {
+          ...base,
+          fields: [
+            {
+              target: { roles: ["AXTextField"], name: "Workflow text" },
+              value: "Filled without keyboard input",
+            },
+          ],
+          postcondition: {
+            kind: "element",
+            target: { name: "Workflow text" },
+            state: "appears",
+          },
+        }),
+      );
+      expect(filled).toMatchObject({
+        outcome: "verified",
+        phase: "complete",
+        dispatchAttempted: true,
+        dispatchAcknowledged: true,
+        fields: [{ index: 0, valueStatus: "verified", reason: null }],
+        postcondition: { status: "satisfied" },
+        reasons: [],
+      });
+      expect(JSON.stringify(filled)).not.toContain(
+        "Filled without keyboard input",
+      );
+
+      const verified = accessibilityActSchema.parse(
+        await client.request("accessibility.act", {
+          ...base,
+          target: { roles: ["AXCheckBox"], name: "Enable cloud sync" },
+          action: "press",
+          postcondition: {
+            kind: "element",
+            target: { name: "Cloud sync enabled" },
+            state: "appears",
+          },
+        }),
+      );
+      expect(verified).toMatchObject({
+        outcome: "verified",
+        phase: "complete",
+        action: "press",
+        dispatchAttempted: true,
+        dispatchAcknowledged: true,
+        postcondition: { status: "satisfied" },
+        reasons: [],
+      });
+      expect(verified.target?.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+      const staleFingerprint = accessibilityActSchema.parse(
+        await client.request("accessibility.act", {
+          ...base,
+          target: { roles: ["AXCheckBox"], name: "Enable cloud sync" },
+          action: "press",
+          expectedTargetFingerprint: `sha256:${"0".repeat(64)}`,
+          postcondition: { kind: "window", state: "appears" },
+        }),
+      );
+      expect(staleFingerprint).toMatchObject({
+        outcome: "not_dispatched",
+        phase: "pre_dispatch",
+        dispatchAttempted: false,
+        dispatchAcknowledged: false,
+        reasons: ["target_fingerprint_mismatch"],
+      });
+
+      const ambiguous = accessibilityActSchema.parse(
+        await client.request("accessibility.act", {
+          ...base,
+          target: { roles: ["AXButton"] },
+          action: "press",
+          postcondition: { kind: "window", state: "appears" },
+        }),
+      );
+      expect(ambiguous).toMatchObject({
+        outcome: "not_dispatched",
+        phase: "pre_dispatch",
+        dispatchAttempted: false,
+        reasons: ["target_ambiguous"],
+      });
+
+      const selectedCandidate = accessibilityActSchema.parse(
+        await client.request("accessibility.act", {
+          ...base,
+          target: { roles: ["AXButton"] },
+          action: "press",
+          selectedTargetFingerprint: `sha256:${"0".repeat(64)}`,
+          postcondition: { kind: "window", state: "appears" },
+        }),
+      );
+      expect(selectedCandidate).toMatchObject({
+        outcome: "not_dispatched",
+        phase: "pre_dispatch",
+        dispatchAttempted: false,
+        reasons: ["candidate_selection_changed"],
+      });
+
+      const unverified = accessibilityActSchema.parse(
+        await client.request("accessibility.act", {
+          ...base,
+          verificationTimeoutMs: 300,
+          target: { roles: ["AXCheckBox"], name: "Enable cloud sync" },
+          action: "press",
+          postcondition: {
+            kind: "element",
+            target: { name: "Never appears after this action" },
+            state: "appears",
+          },
+        }),
+      );
+      expect(unverified).toMatchObject({
+        outcome: "indeterminate",
+        phase: "verifying",
+        dispatchAttempted: true,
+        dispatchAcknowledged: true,
+        postcondition: { status: "unsatisfied" },
+        reasons: ["postcondition_unsatisfied"],
+      });
+      expect(unverified.postcondition.pollCount).toBeGreaterThanOrEqual(2);
+    } finally {
+      await stopPassiveSemanticTarget(target);
+    }
   });
 
   it("preserves successful interaction when post-action capture fails", async () => {

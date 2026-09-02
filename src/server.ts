@@ -1,10 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { NativeBridge } from "./native/client.js";
+import { OperationCoordinator } from "./semantic/operation-coordinator.js";
+import {
+  createCandidateVisionSelectorFromEnvironment,
+  type CandidateVisionSelector,
+} from "./semantic/lm-studio-candidate-selector.js";
 import { registerCaptureTools } from "./tools/capture.js";
 import { registerDiscoveryTools } from "./tools/discovery.js";
 import { registerInputBatchTool } from "./tools/input-batch.js";
 import { registerKeyboardTools } from "./tools/keyboard.js";
 import { registerMouseTools } from "./tools/mouse.js";
+import { registerUiActTool } from "./tools/ui-act.js";
+import { registerUiFillTool } from "./tools/ui-fill.js";
+import { registerUiQueryTool } from "./tools/ui-query.js";
+import { registerUiWaitTool } from "./tools/ui-wait.js";
+import { registerUiWorkflowTool } from "./tools/ui-workflow.js";
 import { z } from "zod";
 
 const permissionStatusSchema = z.object({
@@ -31,7 +41,13 @@ const computerStatusSchema = z.object({
 
 export type ComputerStatus = z.infer<typeof computerStatusSchema>;
 
-export function createServer(native: NativeBridge): McpServer {
+export function createServer(
+  native: NativeBridge,
+  candidateVisionSelector:
+    | CandidateVisionSelector
+    | undefined = createCandidateVisionSelectorFromEnvironment(),
+): McpServer {
+  const coordinatedNative = new OperationCoordinator(native);
   const server = new McpServer({
     name: "computer-use",
     version: "0.1.0",
@@ -53,7 +69,7 @@ export function createServer(native: NativeBridge): McpServer {
     },
     async () => {
       const status = computerStatusSchema.parse(
-        await native.request<unknown>("health"),
+        await coordinatedNative.request<unknown>("health"),
       );
       return {
         structuredContent: status,
@@ -62,11 +78,16 @@ export function createServer(native: NativeBridge): McpServer {
     },
   );
 
-  registerDiscoveryTools(server, native);
-  registerCaptureTools(server, native);
-  registerKeyboardTools(server, native);
-  registerMouseTools(server, native);
-  registerInputBatchTool(server, native);
+  registerDiscoveryTools(server, coordinatedNative);
+  registerUiQueryTool(server, coordinatedNative);
+  registerUiWaitTool(server, coordinatedNative);
+  registerUiActTool(server, coordinatedNative, candidateVisionSelector);
+  registerUiFillTool(server, coordinatedNative);
+  registerUiWorkflowTool(server, coordinatedNative);
+  registerCaptureTools(server, coordinatedNative);
+  registerKeyboardTools(server, coordinatedNative);
+  registerMouseTools(server, coordinatedNative);
+  registerInputBatchTool(server, coordinatedNative);
 
   return server;
 }

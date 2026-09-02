@@ -75,6 +75,22 @@ describe("NativeClient", () => {
     ).resolves.toEqual({ moved: true });
   });
 
+  it("derives accessibility wait timeout from the declared duration", async () => {
+    const client = createClient(25);
+    await expect(
+      client.request("accessibility.wait", { timeoutMs: 0 }),
+    ).resolves.toEqual({ waited: true });
+  });
+
+  it("queues later requests behind a valid native wait before starting their timeout", async () => {
+    const client = createClient(25);
+    const wait = client.request("accessibility.wait", { timeoutMs: 0 });
+    const health = client.request("health");
+
+    await expect(wait).resolves.toEqual({ waited: true });
+    await expect(health).resolves.toEqual({ healthy: true });
+  });
+
   it("rejects malformed native output and starts a fresh helper", async () => {
     const client = createClient();
     await expect(client.request("malformed")).rejects.toMatchObject({

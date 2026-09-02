@@ -1,7 +1,9 @@
 node_modules/
 dist/
 coverage/
+benchmark-results/
 native/.build/
+benchmarks/grounding-real-cases.local.json
 .DS_Store
 
 # Local developer configuration
