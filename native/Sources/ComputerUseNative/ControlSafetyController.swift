@@ -119,6 +119,7 @@ final class ControlSafetyController {
     private var distributedObserver: NSObjectProtocol?
     private var interruptionGeneration: UInt64 = 0
     private var activeControlGeneration: UInt64?
+    private(set) var lmStudioStatus = LMStudioStatus.checking
     private var lastActiveState: ComputerUseActivity = .capture
     private(set) var inputEnabled: Bool
 
@@ -130,6 +131,10 @@ final class ControlSafetyController {
         presenter = ActivityIndicatorPresenter()
         presenter.onEmergencyStop = { [weak self] in self?.emergencyStop() }
         presenter.onResumeControl = { [weak self] in self?.resumeControl() }
+        presenter.onQuit = { [weak self] in
+            self?.emergencyStop()
+            terminateNativeHelper(exitCode: nativeUserQuitExitCode)
+        }
         distributedObserver = DistributedNotificationCenter.default().addObserver(
             forName: Self.distributedNotification,
             object: nil,
@@ -153,6 +158,14 @@ final class ControlSafetyController {
             "indicatorAvailable": indicatorAvailable,
             "state": state.rawValue,
         ]
+    }
+
+    @discardableResult
+    func updateLMStudioStatus(_ parameters: [String: Any]) throws -> LMStudioStatus {
+        let status = try LMStudioStatus.parse(parameters)
+        lmStudioStatus = status
+        presenter.update(lmStudioStatus: status)
+        return status
     }
 
     func requireInputEnabled(generation: UInt64? = nil) throws {

@@ -14,6 +14,39 @@ const modelsResponseSchema = z.object({
   ),
 });
 
+const modelIdentifierSchema = z.string().min(1).max(256);
+const nativeModelsResponseSchema = z.object({
+  models: z.array(
+    z.object({
+      key: modelIdentifierSchema,
+      type: z.string(),
+      loaded_instances: z.array(z.object({ id: modelIdentifierSchema })),
+      capabilities: z.object({ vision: z.boolean() }).optional(),
+    }),
+  ),
+});
+const unsupportedModelEndpointSchema = z.object({
+  error: z
+    .string()
+    .regex(/unexpected endpoint|unknown endpoint|unsupported endpoint/i),
+});
+const legacyNativeModelsResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      id: modelIdentifierSchema,
+      type: z.string(),
+      state: z.enum(["loaded", "not-loaded"]),
+    }),
+  ),
+});
+
+export interface LmStudioModelInventoryEntry {
+  key: string;
+  loadedInstanceIds: string[];
+  isLanguageModel: boolean;
+  vision?: boolean;
+}
+
 const completionResponseSchema = z.object({
   choices: z
     .array(
@@ -38,6 +71,7 @@ export class LmStudioError extends Error {
     readonly code: LmStudioErrorCode,
     message: string,
     options?: ErrorOptions,
+    readonly httpStatus?: number,
   ) {
     super(message, options);
     this.name = "LmStudioError";
@@ -133,6 +167,70 @@ export class LmStudioClient {
 
   get endpointHost(): string {
     return this.#baseUrl.host;
+  }
+
+  get configuredModel(): string | undefined {
+    return this.#configuredModel;
+  }
+
+  async modelInventory(): Promise<LmStudioModelInventoryEntry[]> {
+    const signal = AbortSignal.timeout(2_000);
+    try {
+      let value: unknown;
+      let useLegacy = false;
+      try {
+        const response = await this.#request(
+          "../api/v1/models",
+          { method: "GET", signal },
+          2_000,
+        );
+        value = await response.json();
+        useLegacy = unsupportedModelEndpointSchema.safeParse(value).success;
+      } catch (error) {
+        if (!(error instanceof LmStudioError) || error.httpStatus !== 404)
+          throw error;
+        useLegacy = true;
+      }
+      if (useLegacy) {
+        const response = await this.#request(
+          "../api/v0/models",
+          { method: "GET", signal },
+          2_000,
+        );
+        const legacy = legacyNativeModelsResponseSchema.parse(
+          await response.json(),
+        );
+        return legacy.data.map((model) => ({
+          key: model.id,
+          loadedInstanceIds: model.state === "loaded" ? [model.id] : [],
+          isLanguageModel: model.type === "llm" || model.type === "vlm",
+          ...(model.type === "vlm" ? { vision: true } : {}),
+        }));
+      }
+      const inventory = nativeModelsResponseSchema.parse(value);
+      return inventory.models.map((model) => ({
+        key: model.key,
+        loadedInstanceIds: model.loaded_instances.map(({ id }) => id),
+        isLanguageModel: model.type === "llm",
+        ...(model.capabilities === undefined
+          ? {}
+          : { vision: model.capabilities.vision }),
+      }));
+    } catch (error) {
+      if (signal.aborted) {
+        throw new LmStudioError(
+          "timeout",
+          "LM Studio model status check timed out",
+          { cause: error },
+        );
+      }
+      if (error instanceof LmStudioError) throw error;
+      throw new LmStudioError(
+        "structured_output",
+        "LM Studio returned invalid loaded-model metadata",
+        { cause: error },
+      );
+    }
   }
 
   async listModels(): Promise<string[]> {
@@ -239,9 +337,13 @@ export class LmStudioClient {
     }
   }
 
-  async #request(path: string, init: RequestInit): Promise<Response> {
+  async #request(
+    path: string,
+    init: RequestInit,
+    timeoutMs = this.#timeoutMs,
+  ): Promise<Response> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await this.#fetch(new URL(path, this.#baseUrl), {
         ...init,
@@ -250,12 +352,16 @@ export class LmStudioClient {
           ...init.headers,
         },
         redirect: "error",
-        signal: controller.signal,
+        signal: init.signal
+          ? AbortSignal.any([controller.signal, init.signal])
+          : controller.signal,
       });
       if (!response.ok) {
         throw new LmStudioError(
           "http_error",
           `LM Studio returned HTTP ${response.status}`,
+          undefined,
+          response.status,
         );
       }
       return response;
@@ -263,10 +369,10 @@ export class LmStudioClient {
       if (error instanceof LmStudioError) {
         throw error;
       }
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || init.signal?.aborted) {
         throw new LmStudioError(
           "timeout",
-          `LM Studio request timed out after ${this.#timeoutMs} ms`,
+          `LM Studio request timed out after ${timeoutMs} ms`,
           { cause: error },
         );
       }

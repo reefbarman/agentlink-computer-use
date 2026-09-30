@@ -36,6 +36,7 @@ func permissionStatus() -> [String: Any] {
             "indicatorAvailable": false,
             "state": ComputerUseActivity.paused.rawValue,
         ],
+        "lmStudio": controlSafetyController?.lmStudioStatus.json ?? LMStudioStatus.checking.json,
     ]
     if let artifactStore {
         status["artifactRoot"] = artifactStore.rootURL.path

@@ -289,7 +289,7 @@ export function registerInputBatchTool(
     {
       title: "Perform input batch",
       description:
-        "Validate and perform 1-25 mouse, keyboard, and wait steps sequentially. The whole batch is validated before input begins. Execution stops on the first runtime failure and automatically releases all tracked input state. Optionally capture the resulting UI after execution finishes, including after a stopped batch.",
+        "Validate and perform 1-25 mouse, keyboard, and wait steps sequentially. Batch only steps already determined from current evidence; stop before any step that requires observing new UI state. The whole batch is validated before input begins. Execution stops on the first runtime failure and automatically releases all tracked input state. Use captureAfter at the next visual decision point, including after a stopped batch. A completed batch confirms input dispatch, not task success; inspect the result before retrying partially executed steps.",
       inputSchema: inputBatchRequestSchema,
       outputSchema: withCaptureAfter(inputBatchResultObjectSchema),
       annotations: {

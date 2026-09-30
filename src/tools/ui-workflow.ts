@@ -305,7 +305,7 @@ export function registerUiWorkflowTool(
     {
       title: "Run bounded semantic workflow",
       description:
-        "Run up to 8 typed AX-only act, fill, and wait steps against one identity-pinned application. Each action or fill retains its native re-resolve → dispatch → verification transaction. The workflow validates all steps first, stops on the first non-success, never retries after dispatch, and does not support physical input, keyboard, clipboard, or vision fallback.",
+        "Run up to 8 typed AX-only act, fill, and wait steps against one identity-pinned application. Prefer this for a known sequence of accessible controls with explicit postconditions; use separate calls when later steps depend on inspecting new results. Each action or fill retains its native re-resolve → dispatch → verification transaction. The workflow validates all steps first, stops on the first non-success, never retries after dispatch, and does not support physical input, keyboard, clipboard, or vision fallback. Inspect stoppedAtStep and completedStepCount before considering recovery; do not replay completed steps blindly.",
       inputSchema: uiWorkflowInputSchema,
       outputSchema: uiWorkflowResultSchema,
       annotations: {

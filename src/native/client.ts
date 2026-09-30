@@ -1,6 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
+import {
+  lmStudioStatusSchema,
+  type LmStudioStatus,
+} from "../semantic/lm-studio-status.js";
 
 import {
   NativeError,
@@ -9,9 +13,14 @@ import {
   type NativeResponse,
 } from "./protocol.js";
 
+// Shared with NativeLifecycle.swift: local Quit disables respawning for this client.
+const nativeUserQuitExitCode = 64;
+
 export interface NativeBridge {
   request<T>(method: string, params?: Record<string, unknown>): Promise<T>;
   close(): Promise<void>;
+  readonly isRunning?: boolean;
+  updateLmStudioStatus?(status: LmStudioStatus): Promise<void>;
 }
 
 export interface NativeClientOptions {
@@ -52,6 +61,33 @@ export class NativeClient implements NativeBridge {
       stderr: process.stderr,
       ...options,
     };
+  }
+
+  get isRunning(): boolean {
+    return (
+      !this.#closed &&
+      this.#process !== undefined &&
+      this.#process.exitCode === null &&
+      this.#process.signalCode === null
+    );
+  }
+
+  updateLmStudioStatus(status: LmStudioStatus): Promise<void> {
+    const params = lmStudioStatusSchema.parse(status);
+    const result = this.#requestQueue.then(async () => {
+      // The check happens inside the queue, so a queued update cannot revive a helper.
+      if (!this.isRunning) return;
+      const response = await this.#dispatchRequest<{ lmStudio: unknown }>(
+        "lmStudio.status",
+        params,
+      );
+      lmStudioStatusSchema.parse(response.lmStudio);
+    });
+    this.#requestQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -189,19 +225,20 @@ export class NativeClient implements NativeBridge {
     if (this.#process === child) {
       this.#process = undefined;
     }
-    if (!child || child.exitCode !== null) {
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
       return;
     }
 
-    child.stdin.end();
     await new Promise<void>((resolve) => {
-      const forceKill = setTimeout(() => {
+      const terminate = setTimeout(() => {
         child.kill("SIGTERM");
       }, 1_000);
+      this.#scheduleForceKill(child);
       child.once("exit", () => {
-        clearTimeout(forceKill);
+        clearTimeout(terminate);
         resolve();
       });
+      child.stdin.end();
     });
   }
 
@@ -235,11 +272,14 @@ export class NativeClient implements NativeBridge {
       }
 
       this.#process = undefined;
+      if (code === nativeUserQuitExitCode) this.#closed = true;
       const detail = signal ? `signal ${signal}` : `code ${code ?? "unknown"}`;
       this.#rejectAll(
         new NativeError(
           "native_unavailable",
-          `Native helper exited with ${detail}`,
+          code === nativeUserQuitExitCode
+            ? "Computer use was quit from the menu bar; reconnect the MCP server to restart it"
+            : `Native helper exited with ${detail}`,
         ),
       );
     });
@@ -314,9 +354,19 @@ export class NativeClient implements NativeBridge {
     }
     this.#process = undefined;
     this.#rejectAll(error);
-    if (child.exitCode === null) {
+    if (child.exitCode === null && child.signalCode === null) {
+      this.#scheduleForceKill(child);
       child.kill("SIGTERM");
     }
+  }
+
+  #scheduleForceKill(child: ChildProcessWithoutNullStreams): void {
+    const timeout = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, 4_000);
+    child.once("exit", () => clearTimeout(timeout));
   }
 
   #rejectAll(error: Error): void {

@@ -198,6 +198,16 @@ async function selectCandidateWithVision(
   if (candidates.length !== query.matches.length) {
     return { query, reasons: ["candidate_vision_invalid_ax_candidate"] };
   }
+  const readinessFailure = await selector.checkSelectionReadiness?.();
+  if (readinessFailure) {
+    return {
+      query,
+      reasons: [
+        "candidate_vision_unavailable",
+        `candidate_vision_${readinessFailure}`,
+      ],
+    };
+  }
   const displays = displayListResultSchema.parse(
     await native.request<unknown>("display.list"),
   ).displays;

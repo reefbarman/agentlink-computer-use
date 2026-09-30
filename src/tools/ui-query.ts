@@ -69,7 +69,7 @@ export function registerUiQueryTool(
     {
       title: "Query semantic UI",
       description:
-        "Resolve exactly one running application and query its macOS Accessibility tree using bounded role, name, action, state, and ancestor constraints. Returns compact matched candidates and observation identity without taking input, invoking vision, capturing the screen, exposing values, or returning a full UI tree.",
+        "Resolve exactly one running application and query its macOS Accessibility tree using bounded role, name, action, state, and ancestor constraints. Prefer this for accessible controls; use ui_act or ui_fill with explicit postconditions once the target is resolved. Ambiguous or incomplete results require clarification or fresh evidence, not a guessed candidate. Returns compact matched candidates and observation identity without taking input, invoking vision, capturing the screen, exposing values, or returning a full UI tree. A not_found result does not establish visual absence for canvas or custom-drawn UI.",
       inputSchema: uiQueryInputSchema,
       outputSchema: uiQueryResultSchema,
       annotations: {

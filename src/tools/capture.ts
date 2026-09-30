@@ -66,7 +66,15 @@ export const captureRequestSchema = z.object({
 
 export const captureAfterSchema = captureRequestSchema.extend({
   format: z.enum(["png", "jpeg"]).default("jpeg"),
-  settleMs: z.number().int().min(0).max(2_000).default(100),
+  settleMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(2_000)
+    .default(100)
+    .describe(
+      "Fixed delay before capture, not a readiness or success check. Inspect the image or use ui_wait for a known Accessibility condition. A captureError does not mean the preceding action failed; do not repeat successful input just to obtain an image.",
+    ),
 });
 
 const captureResultSchema = z.object({ capture: captureMetadataSchema });
@@ -81,7 +89,7 @@ export function registerCaptureTools(
     {
       title: "Capture screen content",
       description:
-        "Capture one display, one window, or a global logical-point region. Returns an image plus a verified pixel-to-global-point mapping; mapping.pixelsPerPoint is authoritative for clicks after scaling. Region targets must fit entirely within one display. nativePixelSize is null when a window spans displays.",
+        "Capture one display, one window, or a global logical-point region. Returns an image plus its pixel-to-global-point mapping. For visual input, use this capture's mapping, not raw image pixels: screen = screenBounds origin + (image point - imageContentBounds origin) / pixelsPerPoint, per axis. Account for any additional host resizing before applying that mapping. Prefer a focused window or region for small controls; recapture after geometry changes. Region targets must fit entirely within one display. nativePixelSize is null when a window spans displays. Use an input tool's captureAfter when an action and its resulting image are both needed.",
       inputSchema: captureRequestSchema,
       outputSchema: captureResultSchema,
       annotations: {

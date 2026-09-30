@@ -83,6 +83,10 @@ function promptFor(
   return lines.join("\n");
 }
 
+export function supportsQwen3VlSelectorModel(modelId: string): boolean {
+  return /(?:^|[/_-])qwen3[-_]?vl(?:[/_-]|$)/i.test(modelId);
+}
+
 export function createQwen3VlSelectorAdapter(
   candidates: readonly SelectorCandidate[],
   variant: SelectorPromptVariant,
@@ -115,9 +119,7 @@ export function createQwen3VlSelectorAdapter(
     version: 1,
     maxCoordinate: 999,
     coordinateDenominator: 1000,
-    supportsModel(modelId: string): boolean {
-      return /(?:^|[/_-])qwen3[-_]?vl(?:[/_-]|$)/i.test(modelId);
-    },
+    supportsModel: supportsQwen3VlSelectorModel,
     prompt(target: string, imageSize: PixelSize): string {
       return promptFor(candidates, variant, target, imageSize);
     },

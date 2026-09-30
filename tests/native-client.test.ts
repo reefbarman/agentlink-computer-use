@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { NativeClient } from "../src/native/client.js";
 import { NativeError } from "../src/native/protocol.js";
+import { initialLmStudioStatus } from "../src/semantic/lm-studio-status.js";
 
 const fixturePath = fileURLToPath(
   new URL("./fixtures/native-helper.mjs", import.meta.url),
@@ -39,6 +40,29 @@ describe("NativeClient", () => {
     await expect(createClient().request("health")).resolves.toEqual({
       healthy: true,
     });
+  });
+
+  it("never starts or revives a helper just to update LM Studio status", async () => {
+    const client = createClient();
+    await client.updateLmStudioStatus(initialLmStudioStatus());
+    expect(client.isRunning).toBe(false);
+    await client.request("health");
+    expect(client.isRunning).toBe(true);
+    await client.updateLmStudioStatus(initialLmStudioStatus());
+    await client.close();
+    await client.updateLmStudioStatus(initialLmStudioStatus());
+    expect(client.isRunning).toBe(false);
+  });
+
+  it("drops a queued status update if the helper was quit", async () => {
+    const client = createClient();
+    const quit = expect(client.request("quit")).rejects.toMatchObject({
+      code: "native_unavailable",
+    });
+    const update = client.updateLmStudioStatus(initialLmStudioStatus());
+    await quit;
+    await update;
+    expect(client.isRunning).toBe(false);
   });
 
   it("maps structured native errors", async () => {
@@ -98,6 +122,33 @@ describe("NativeClient", () => {
     });
     await expect(client.request("health")).resolves.toEqual({ healthy: true });
   });
+
+  it("does not respawn after a local Quit", async () => {
+    const client = createClient();
+    await expect(client.request("quit")).rejects.toMatchObject({
+      code: "native_unavailable",
+      message: expect.stringContaining("quit from the menu bar"),
+    });
+    await expect(client.request("health")).rejects.toMatchObject({
+      code: "native_unavailable",
+      message: "Native client is closed",
+    });
+  });
+
+  it("force-stops a helper that ignores EOF and SIGTERM", async () => {
+    const client = createClient();
+    const { pid } = await client.request<{ pid: number }>("ignoreShutdown");
+    try {
+      await client.close();
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+  }, 10_000);
 
   it("rejects a request when close races initial startup", async () => {
     const client = createClient();

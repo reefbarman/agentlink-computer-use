@@ -2,15 +2,20 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+@MainActor
 struct JSONOutput {
     static func write(_ value: Any, prettyPrinted: Bool = true) throws {
         let options: JSONSerialization.WritingOptions =
             prettyPrinted
             ? [.prettyPrinted, .sortedKeys]
             : [.sortedKeys]
-        let data = try JSONSerialization.data(withJSONObject: value, options: options)
-        FileHandle.standardOutput.write(data)
-        FileHandle.standardOutput.write(Data([0x0A]))
+        var data = try JSONSerialization.data(withJSONObject: value, options: options)
+        data.append(0x0A)
+        do {
+            try FileHandle.standardOutput.write(contentsOf: data)
+        } catch {
+            terminateNativeHelper(exitCode: 1)
+        }
     }
 
     static func writeError(_ error: Error) {

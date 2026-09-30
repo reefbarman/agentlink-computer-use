@@ -20,7 +20,7 @@
     "benchmark:ax-discovery": "npm run build:native && npm run build && node dist/benchmarks/ax-discovery-benchmark.js",
     "benchmark:hybrid-locator": "npm run build:native && npm run build && node dist/benchmarks/hybrid-locator-benchmark.js",
     "test": "vitest run tests/native-client.test.ts tests/artifacts.test.ts tests/operation-coordinator.test.ts tests/server.test.ts tests/grounding.test.ts tests/hybrid-selector.test.ts tests/hybrid-locator.test.ts tests/lm-studio-candidate-selector.test.ts tests/semantic-baseline.test.ts tests/ax-discovery.test.ts tests/real-input-guard.test.ts",
-    "test:integration": "node scripts/confirm-real-input.mjs && npm run build:native && npm run build && vitest run --no-file-parallelism --testTimeout=45000 tests/native-integration.test.ts tests/stdio-integration.test.ts tests/ui-workflow-integration.test.ts",
+    "test:integration": "node scripts/confirm-real-input.mjs && npm run build:native && npm run build && vitest run --no-file-parallelism --testTimeout=45000 tests/native-integration.test.ts tests/stdio-integration.test.ts tests/ui-workflow-integration.test.ts tests/helper-lifecycle-integration.test.ts",
     "test:smoke": "npm run build:native && vitest run tests/discovery-smoke.test.ts",
     "test:mouse-smoke": "node scripts/confirm-real-input.mjs && npm run build:native && vitest run tests/mouse-smoke.test.ts",
     "test:keyboard-smoke": "node scripts/confirm-real-input.mjs && npm run build:native && vitest run --testTimeout=30000 tests/keyboard-smoke.test.ts",

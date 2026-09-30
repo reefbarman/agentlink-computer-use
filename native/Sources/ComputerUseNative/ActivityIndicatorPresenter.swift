@@ -53,11 +53,13 @@ private final class ActivityPillView: NSView {
 final class ActivityIndicatorPresenter: NSObject {
     var onEmergencyStop: (() -> Void)?
     var onResumeControl: (() -> Void)?
+    var onQuit: (() -> Void)?
 
     private let statusItem: NSStatusItem
     private var panels: [NSScreen: NSPanel] = [:]
     private var currentState: ComputerUseActivity = .idle
     private var inputEnabled = true
+    private var lmStudioStatus = LMStudioStatus.checking
     private var screenObserver: NSObjectProtocol?
     private(set) var isAvailable = false
 
@@ -95,6 +97,11 @@ final class ActivityIndicatorPresenter: NSObject {
         currentState = state
         self.inputEnabled = inputEnabled
         applyPresentation()
+        rebuildMenu()
+    }
+
+    func update(lmStudioStatus: LMStudioStatus) {
+        self.lmStudioStatus = lmStudioStatus
         rebuildMenu()
     }
 
@@ -217,6 +224,17 @@ final class ActivityIndicatorPresenter: NSObject {
         stateItem.isEnabled = false
         menu.addItem(stateItem)
         menu.addItem(.separator())
+        let lmStudioItem = NSMenuItem(
+            title: "LM Studio: \(lmStudioStatus.state.title)", action: nil, keyEquivalent: "")
+        let lmStudioMenu = NSMenu()
+        for (label, value) in lmStudioStatus.menuRows {
+            let row = NSMenuItem(title: "\(label): \(value)", action: nil, keyEquivalent: "")
+            row.isEnabled = false
+            lmStudioMenu.addItem(row)
+        }
+        lmStudioItem.submenu = lmStudioMenu
+        menu.addItem(lmStudioItem)
+        menu.addItem(.separator())
         if inputEnabled {
             let stop = NSMenuItem(
                 title: "Emergency Stop",
@@ -232,6 +250,13 @@ final class ActivityIndicatorPresenter: NSObject {
             resume.target = self
             menu.addItem(resume)
         }
+        menu.addItem(.separator())
+        let quit = NSMenuItem(
+            title: "Quit Computer Use",
+            action: #selector(quitSelected),
+            keyEquivalent: "")
+        quit.target = self
+        menu.addItem(quit)
         statusItem.menu = menu
     }
 
@@ -250,5 +275,9 @@ final class ActivityIndicatorPresenter: NSObject {
 
     @objc private func resumeControlSelected() {
         onResumeControl?()
+    }
+
+    @objc private func quitSelected() {
+        onQuit?()
     }
 }

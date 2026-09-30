@@ -28,6 +28,9 @@ func serve() async throws {
             switch method {
             case "health":
                 result = permissionStatus()
+            case "lmStudio.status":
+                let status = try requireControlSafetyController().updateLMStudioStatus(parameters)
+                result = ["lmStudio": status.json]
             case "display.list":
                 result = try await listDisplays()
             case "application.list":

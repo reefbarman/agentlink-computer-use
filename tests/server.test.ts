@@ -1,10 +1,18 @@
 /// <reference types="node" />
 
 import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 
-import type { CandidateVisionSelector } from "../src/semantic/lm-studio-candidate-selector.js";
+import {
+  LmStudioCandidateSelector,
+  type CandidateVisionSelector,
+} from "../src/semantic/lm-studio-candidate-selector.js";
+import { LmStudioClient } from "../src/grounding/lm-studio-client.js";
+import {
+  initialLmStudioStatus,
+  type LmStudioStatus,
+} from "../src/semantic/lm-studio-status.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { NativeBridge } from "../src/native/client.js";
@@ -267,6 +275,13 @@ interface NativeRequestRecord {
 }
 
 class StubNativeBridge implements NativeBridge {
+  isRunning = false;
+  readonly lmStudioUpdates: LmStudioStatus[] = [];
+
+  async updateLmStudioStatus(status: LmStudioStatus): Promise<void> {
+    this.lmStudioUpdates.push(status);
+  }
+
   requests: NativeRequestRecord[] = [];
   responses: Record<
     string,
@@ -393,7 +408,7 @@ async function createTestContext(
   candidateVisionSelector?: CandidateVisionSelector,
 ): Promise<TestContext> {
   const native = new StubNativeBridge();
-  const server = createServer(native, candidateVisionSelector);
+  const server = createServer(native, candidateVisionSelector ?? null);
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -444,6 +459,28 @@ describe("MCP tools", () => {
     expect(statusTool?.description).toContain("activity-indicator");
   });
 
+  it("advertises observation boundaries and capture recovery guidance", async () => {
+    const { client } = await createTestContext();
+    const { tools } = await client.listTools();
+    const tool = (name: string) => tools.find((entry) => entry.name === name)!;
+
+    expect(tool("input_batch").description).toContain(
+      "stop before any step that requires observing new UI state",
+    );
+    expect(tool("screen_capture").description).toContain(
+      "Account for any additional host resizing",
+    );
+    expect(tool("ui_query").description).toContain(
+      "not_found result does not establish visual absence",
+    );
+    expect(tool("ui_workflow").description).toContain(
+      "do not replay completed steps blindly",
+    );
+    const clickSchema = JSON.stringify(tool("mouse_click").inputSchema);
+    expect(clickSchema).toContain("not a readiness or success check");
+    expect(clickSchema).toContain("do not repeat successful input");
+  });
+
   it("returns structured computer status", async () => {
     const { client, native } = await createTestContext();
     const result = await client.callTool({
@@ -453,7 +490,10 @@ describe("MCP tools", () => {
 
     expect(result.isError).not.toBe(true);
     const { artifactRoot: _artifactRoot, ...visibleStatus } = status;
-    expect(result.structuredContent).toEqual(visibleStatus);
+    expect(result.structuredContent).toEqual({
+      ...visibleStatus,
+      lmStudio: initialLmStudioStatus(true),
+    });
     expect(result.structuredContent).toMatchObject({
       control: {
         inputEnabled: true,
@@ -462,6 +502,89 @@ describe("MCP tools", () => {
       },
     });
     expect(native.requests).toEqual([{ method: "health", params: {} }]);
+  });
+
+  it("reports LM Studio readiness and history independently of native health", async () => {
+    const lmStudio: LmStudioStatus = {
+      ...initialLmStudioStatus(),
+      state: "ready",
+      model: "qwen/qwen3-vl-8b",
+      checkedAt: new Date().toISOString(),
+      lastUsed: {
+        at: new Date().toISOString(),
+        model: "qwen/qwen3-vl-8b",
+        durationMs: 10,
+      },
+      lastFailure: {
+        at: new Date().toISOString(),
+        model: null,
+        reason: "provider_endpoint_unavailable",
+      },
+    };
+    const checkReadiness = vi.fn().mockResolvedValue(lmStudio);
+    const select = vi.fn();
+    const { client, native } = await createTestContext({
+      checkReadiness,
+      select,
+    });
+    const result = await client.callTool({
+      name: "computer_status",
+      arguments: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ lmStudio });
+    expect(native.lmStudioUpdates).toEqual([lmStudio]);
+    expect(select).not.toHaveBeenCalled();
+    expect(native.requests).toEqual([{ method: "health", params: {} }]);
+  });
+
+  it("publishes each readiness snapshot only once when the selector sends notifications", async () => {
+    const status = {
+      ...initialLmStudioStatus(),
+      checkedAt: new Date().toISOString(),
+    };
+    let listener: ((status: LmStudioStatus) => void) | undefined;
+    const { client, native } = await createTestContext({
+      select: vi.fn(),
+      subscribeStatus: (callback) => {
+        listener = callback;
+        return () => {
+          listener = undefined;
+        };
+      },
+      checkReadiness: async () => {
+        listener?.(status);
+        return status;
+      },
+    });
+    const result = await client.callTool({
+      name: "computer_status",
+      arguments: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect(native.lmStudioUpdates).toEqual([status]);
+  });
+
+  it("refreshes menu status only for running helpers and stops refreshing on disconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const checkReadiness = vi.fn().mockResolvedValue(initialLmStudioStatus());
+      const { client, native } = await createTestContext({
+        checkReadiness,
+        select: vi.fn(),
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(checkReadiness).not.toHaveBeenCalled();
+      native.isRunning = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(checkReadiness).toHaveBeenCalledTimes(1);
+      expect(native.lmStudioUpdates).toHaveLength(1);
+      await client.close();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(checkReadiness).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects computer status without control state", async () => {
@@ -1194,7 +1317,12 @@ describe("MCP tools", () => {
   });
 
   it("keeps a unique AX action model-free when candidate vision is requested", async () => {
-    const { client, native } = await createTestContext();
+    const select = vi.fn();
+    const checkSelectionReadiness = vi.fn().mockResolvedValue(null);
+    const { client, native } = await createTestContext({
+      select,
+      checkSelectionReadiness,
+    });
     const result = await client.callTool({
       name: "ui_act",
       arguments: {
@@ -1216,6 +1344,59 @@ describe("MCP tools", () => {
     expect(native.requests.at(-1)?.params).not.toHaveProperty(
       "selectedTargetFingerprint",
     );
+    expect(select).not.toHaveBeenCalled();
+    expect(checkSelectionReadiness).not.toHaveBeenCalled();
+  });
+
+  it("reports an offline vision provider without taking a screenshot or dispatching input", async () => {
+    const selector = new LmStudioCandidateSelector({
+      client: new LmStudioClient({
+        fetchImpl: vi
+          .fn<typeof fetch>()
+          .mockRejectedValue(new Error("offline")),
+      }),
+    });
+    const select = vi.spyOn(selector, "select");
+    const { client, native } = await createTestContext(selector);
+    native.responses["accessibility.query"] = accessibilityQuery({
+      status: "ambiguous",
+      matchCount: 2,
+      matches: [
+        accessibilityNode,
+        {
+          ...accessibilityNode,
+          id: "n4",
+          fingerprint: `sha256:${"d".repeat(64)}`,
+        },
+      ],
+    });
+    const result = await client.callTool({
+      name: "ui_act",
+      arguments: {
+        scope: { processId: application.processId },
+        target: { roles: ["AXButton"] },
+        action: "press",
+        fallback: "candidate_vision",
+        visionTargetDescription: "the Save button for Project Alpha",
+        postcondition: { kind: "window", state: "appears" },
+      },
+    });
+    expect(result.structuredContent).toMatchObject({
+      outcome: "not_dispatched",
+      reasons: [
+        "candidate_vision_unavailable",
+        "candidate_vision_provider_endpoint_unavailable",
+      ],
+    });
+    expect(native.requests.map(({ method }) => method)).toEqual([
+      "application.list",
+      "accessibility.query",
+    ]);
+    expect(select).not.toHaveBeenCalled();
+    expect(selector.status).toMatchObject({
+      lastUsed: null,
+      lastFailure: { reason: "provider_endpoint_unavailable" },
+    });
   });
 
   it("abstains before dispatch when candidate vision is disabled, uncertain, or truncated", async () => {

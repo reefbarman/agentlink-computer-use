@@ -391,6 +391,41 @@ describe("grounding geometry", () => {
     expect(screenToImage(screenPoint, mapping)).toEqual({ x: 600, y: 400 });
   });
 
+  it.each([1, 2, 0.5])(
+    "maps cropped capture coordinates at %s pixels per logical point",
+    (scale) => {
+      const captureMapping: CaptureMapping = {
+        kind: "linear",
+        imageContentBounds: {
+          x: 0,
+          y: 0,
+          width: 400 * scale,
+          height: 300 * scale,
+        },
+        screenBounds: { x: -1200, y: 100, width: 400, height: 300 },
+        pixelsPerPoint: { x: scale, y: scale },
+      };
+      const imagePoint = { x: 150 * scale, y: 100 * scale };
+      const screenPoint = imageToScreen(imagePoint, captureMapping);
+      expect(screenPoint).toEqual({ x: -1050, y: 200 });
+      expect(screenToImage(screenPoint, captureMapping)).toEqual(imagePoint);
+    },
+  );
+
+  it("uses each consecutive capture's mapping after a scale and origin change", () => {
+    const first = imageToScreen({ x: 600, y: 400 }, mapping);
+    const nextMapping: CaptureMapping = {
+      kind: "linear",
+      imageContentBounds: { x: 0, y: 0, width: 600, height: 400 },
+      screenBounds: { x: 100, y: 50, width: 600, height: 400 },
+      pixelsPerPoint: { x: 1, y: 1 },
+    };
+    const next = imageToScreen({ x: 300, y: 200 }, nextMapping);
+    expect(first).toEqual({ x: -1200, y: 400 });
+    expect(next).toEqual({ x: 400, y: 250 });
+    expect(imageToScreen({ x: 300, y: 200 }, mapping)).not.toEqual(next);
+  });
+
   it("uses the pinned thousand-bin mapping and records endpoint sensitivity", () => {
     const result = qwen3VlAdapter.parse({
       status: "found",

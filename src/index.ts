@@ -19,15 +19,36 @@ async function main(): Promise<void> {
 
   const native = new NativeClient({ executablePath });
   const server = createServer(native);
+  let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
-    await server.close();
-    await native.close();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      await server.close();
+    } finally {
+      await native.close();
+    }
+  };
+  const requestShutdown = (): void => {
+    void shutdown().catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
   };
 
-  process.once("SIGINT", () => void shutdown());
-  process.once("SIGTERM", () => void shutdown());
+  process.once("SIGINT", requestShutdown);
+  process.once("SIGTERM", requestShutdown);
+  process.stdin.once("end", requestShutdown);
+  process.stdin.once("close", requestShutdown);
+  process.stdin.once("error", requestShutdown);
+  process.stdout.once("error", requestShutdown);
 
-  await server.connect(new StdioServerTransport());
+  try {
+    await server.connect(new StdioServerTransport());
+  } catch (error) {
+    await shutdown();
+    throw error;
+  }
 }
 
 main().catch((error: unknown) => {

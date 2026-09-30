@@ -12,8 +12,9 @@ private func printUsage() {
 @main
 private struct ComputerUseNative {
     @MainActor
-    static func main() async {
+    static func main() {
         _ = NSApplication.shared
+        installTerminationSignalHandlers()
 
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
@@ -24,12 +25,20 @@ private struct ComputerUseNative {
 
             artifactStore = try ArtifactStore()
             controlSafetyController = try ControlSafetyController()
-            installTerminationSignalHandlers()
-            defer { cleanupNativeState() }
-            try await serve()
+            installParentExitHandler()
+            Task { @MainActor in
+                do {
+                    try await serve()
+                    terminateNativeHelper()
+                } catch {
+                    JSONOutput.writeError(error)
+                    terminateNativeHelper(exitCode: 1)
+                }
+            }
+            NSApplication.shared.run()
         } catch {
             JSONOutput.writeError(error)
-            Foundation.exit(1)
+            terminateNativeHelper(exitCode: 1)
         }
     }
 }
