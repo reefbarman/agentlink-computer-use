@@ -1,0 +1,87 @@
+src/semantic/lm-studio-candidate-selector.ts
+  h_9630b74bdac540 4,14-17,57-60,97-101,103-107,111-227,230-233,240-245,276-292,304-309,324,328
+  h_e08a86bb3a33a2 228-229,253
+src/tools/ui-act.ts
+  h_9630b74bdac540 201-210
+src/tools/input-batch.ts
+  h_9630b74bdac540 292
+native/Sources/ComputerUseNative/JSONSupport.swift
+  h_9630b74bdac540 5,12-18
+native/Sources/ComputerUseNative/ActivityIndicatorPresenter.swift
+  h_9630b74bdac540 56,62,103-107,227-236,253-259,279-281
+  h_e08a86bb3a33a2 237,282
+src/server.ts
+  h_9630b74bdac540 19-23,31,47-50,57,66-86,88-107,114,124,127-129,140
+  h_e08a86bb3a33a2 87,108
+tests/grounding.test.ts
+  h_9630b74bdac540 394-428
+tests/helper-lifecycle-integration.test.ts
+  h_9630b74bdac540 1-219
+src/tools/ui-workflow.ts
+  h_9630b74bdac540 308
+src/index.ts
+  h_9630b74bdac540 22,24-26,28,30,32-36,39-44,46,48-51
+  h_e08a86bb3a33a2 27,29,31,47
+native/Sources/ComputerUseNative/Permissions.swift
+  h_9630b74bdac540 39
+src/native/client.ts
+  h_9630b74bdac540 4-7,16-18,22-23,66-90,228,233,236,238,241,275,280-282,357-358,363-369
+  h_e08a86bb3a33a2 91-92,370-371
+src/semantic/lm-studio-status.ts
+  h_9630b74bdac540 1-47
+src/tools/ui-query.ts
+  h_9630b74bdac540 72
+tests/lm-studio-candidate-selector.test.ts
+  h_9630b74bdac540 11-17,50,137,140,170-446
+  h_e08a86bb3a33a2 51-53,138-139,447
+native/Sources/ComputerUseNative/ProtocolServer.swift
+  h_9630b74bdac540 31-33
+tests/fixtures/native-helper.mjs
+  h_9630b74bdac540 12-23
+src/grounding/lm-studio-client.ts
+  h_9630b74bdac540 17-49,74,172-233,342-343,355-357,363-364,372,375
+  h_e08a86bb3a33a2 234-235,340-341,344,346
+tests/server.test.ts
+  h_9630b74bdac540 4,7-15,278-284,411,462-483,493-496,507-521,523-532,534-537,539-587,1320-1325,1347-1399
+  h_e08a86bb3a33a2 522,533,538,588-589
+docs/lm-studio-status.md
+  h_9630b74bdac540 1-40
+native/Sources/ComputerUseNative/ComputerUseNative.swift
+  h_9630b74bdac540 15,17,28-38,41
+src/grounding/adapters/qwen3-vl-selector.ts
+  h_9630b74bdac540 86-89,122
+src/tools/capture.ts
+  h_9630b74bdac540 75-77,92
+  h_e08a86bb3a33a2 69-74
+native/Sources/ComputerUseNative/NativeLifecycle.swift
+  h_9630b74bdac540 5-7,9,23-41,44,49-50
+  h_e08a86bb3a33a2 22
+docs/computer-use-guide.md
+  h_9630b74bdac540 1-114
+native/Sources/ComputerUseNative/LmStudioStatus.swift
+  h_9630b74bdac540 1-194
+docs/astra-screenshot-audit.md
+  h_9630b74bdac540 1-135
+native/Sources/ComputerUseNative/ControlSafetyController.swift
+  h_9630b74bdac540 122,134-137,163-168
+  h_e08a86bb3a33a2 169-170
+package.json
+  h_9630b74bdac540 23
+tests/native-client.test.ts
+  h_9630b74bdac540 10,45-65,126-152
+  h_e08a86bb3a33a2 66-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "437239744c39527572dfea9b65f2500f7d73df5b",
+  "prompts": {},
+  "humans": {
+    "h_9630b74bdac540": {
+      "author": "Tristan Cartledge <tristan@speakeasyapi.dev>"
+    },
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
